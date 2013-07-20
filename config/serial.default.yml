@@ -1,0 +1,8 @@
+
+# The MQTT id
+client_id: SerialGateway
+
+# RF12 settings
+group: 44
+node: 1
+ack: 0
