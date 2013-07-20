@@ -1,5 +1,8 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import unittest
-from drivers.serial import SerialGateway
+from drivers.serialgateway import SerialGateway
 import driver
 from common.error import *
 

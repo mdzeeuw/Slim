@@ -3,6 +3,8 @@
 """
     Myhome Core file
 """
+from drivers.serialgateway import SerialGateway
+from drivers.cpumonitor import CPUMonitor
 
 
 class MyHome():
@@ -21,3 +23,11 @@ class Loader():
         Class responsible for loading / unloading drivers
     """
     pass
+
+if __name__ == '__main__':
+    #d = SerialGateway()
+    d = CPUMonitor()
+
+    d.initialize()
+
+    d.start()

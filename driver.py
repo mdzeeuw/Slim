@@ -9,6 +9,8 @@ import common.error
 
 class Driver():
 
+    logger = None
+
     def initialize(self):
         raise DriverException("Initialize is not implemented")
 

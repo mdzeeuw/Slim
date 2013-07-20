@@ -7,7 +7,7 @@
 import yaml
 import yaml.scanner
 
-import common.error
+import error
 
 
 def getConfig(file):
@@ -41,7 +41,7 @@ class Config():
             return default
 
 
-class ConfigError(common.error.MyHomeException):
+class ConfigError(error.MyHomeException):
 
     def __init__(self, text):
         self.text = text
