@@ -2,3 +2,5 @@
 *.log
 *.yml
 !*.default.yml
+*.key
+

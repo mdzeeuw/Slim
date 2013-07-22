@@ -35,14 +35,19 @@ class MQTTClient():
 
     connected = False
     connecting = False
+    disconnecting = False
 
-    def __init__(self, client_id):
+    def __init__(self, client_id, debug=False):
         self.subscriptions = []
         self.client_id = client_id
 
         self.client = mosquitto.Mosquitto(self.client_id)
 
-        self.logger = common.get_logger("MQTT.{0}".format(client_id), True)
+        # Regular logger
+        if debug:
+            self.logger = common.get_logger("MQTT.{0}".format(client_id), True)
+        else:
+            self.logger = common.get_file_logger("MQTT.{0}".format(client_id), False)
 
         self.logger.debug("Initialized")
 
@@ -73,20 +78,30 @@ class MQTTClient():
         self.client.on_subscribe = self.on_subscribe
         self.client.on_unsubscribe = self.on_unsubscribe
 
-        self.client.connect(conf.get("server"), int(conf.get("port")), 60)
+        self.client.connect(conf.get("server"), int(conf.get("port")), 120)
 
         #clean = config.get("clean_session", True)
         self.logger.info("Connecting to: {0} : {1}".format(conf.get("server"), conf.get("port")))
 
-        self.alive = True
         self.thread_looper = threading.Thread(target=self.looper)
         self.thread_looper.setDaemon(True)
         self.thread_looper.setName('mqtt_looper_{0}'.format(self.client_id))
         self.thread_looper.start()
 
+        # Wait for the connection
+        for i in range(50):
+            time.sleep(0.1)
+            if self.connected:
+                break
+
+        time.sleep(0.1)
+        return self.connected
+
     def disconnect(self):
 
-        if self.connected:
+        if self.connected and not self.disconnecting:
+
+            self.disconnecting = True
 
             self.alive = False
             self.logger.info("Disconnecting")
@@ -95,6 +110,21 @@ class MQTTClient():
             for i in range(1000):
                 if self.client.loop():
                     break
+
+            self.logger.info("Succesfull disconnect")
+
+    def kill(self):
+        self.alive = False
+        try:
+            self.client.disconnect()
+
+            for i in range(1000):
+                if self.client.loop():
+                    break
+                time.sleep(0.01)
+
+        finally:
+            pass
 
     def subscribe(self, topic, callback):
 
@@ -127,10 +157,12 @@ class MQTTClient():
             if sub['t'] == topic:
                 del self.subscriptions[i]
 
-    def send(self, topic, message):
+    def send(self, topic, message, retain=0, qos=0):
+        if retain:
+            retain = 1
 
-        self.logger.debug("Sending message {0} : '{1}'".format(topic, message))
-        self.client.publish(topic, message, 0)
+        self.logger.debug("Sending message {0} : '{1}' q{2} r{3}".format(topic, message, qos, retain))
+        self.client.publish(topic, message, qos, True)
 
     def do_subscribe(self):
 
@@ -148,10 +180,19 @@ class MQTTClient():
                 #print "Subscribe {0}".format(sub['t'])
 
     def looper(self):
+        self.alive = True
+        self.logger.info("Looper started")
         while self.alive:
-            self.logger.debug("mqtt loop")
-            time.sleep(0.50)
-            self.loop()
+            try:
+                time.sleep(0.50)
+                self.loop()
+
+            except Exception as e:
+                self.logger.error(e)
+                break
+
+        self.alive = False
+        self.logger.info("Looper stopped")
 
     def loop(self):
         return self.client.loop()
@@ -188,19 +229,21 @@ class MQTTClient():
         if rc == 5:
             raise MQTTException("MQTT not authorised")
 
-    def on_disconnect(self, rc):
+    def on_disconnect(self, obj):
 
+        rc = 0
         self.logger.info("Disconnected. RC:{0}".format(rc))
         self.connected = False
         self.connecting = False
         self.alive = False
+        self.disconnecting = False
 
         if rc == 0:
             pass
 
-        if rc == 1:
+        elif rc == 1:
             self.logger.error("Unexpected disconnect")
-            raise MQTTException("MQTT Unexpected disconnect")
+            #raise MQTTException("MQTT Unexpected disconnect")
 
     def on_message(self, obj, msg):
         #print("Message received on topic "+msg.topic+" with QoS "+str(msg.qos)+" and payload "+msg.payload)

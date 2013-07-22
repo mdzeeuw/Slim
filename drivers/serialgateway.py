@@ -15,7 +15,9 @@ from datetime import date
 
 class SerialGateway(driver.Driver):
 
-    def initialize(self):
+    NAME = "SerialGateway"
+
+    def initialize(self, debug=False):
 
         self.running = False
 
@@ -24,13 +26,16 @@ class SerialGateway(driver.Driver):
         self.data_logger.check_log()
 
         # Regular logger
-        self.logger = common.common.get_logger("SerialGate", True)
+        if debug:
+            self.logger = common.common.get_logger(self.NAME, True)
+        else:
+            self.logger = common.common.get_file_logger(self.NAME, False)
 
         # Get my config
         self.config = common.config.Config("serial")
 
         # Initalize mqtt client
-        self.client = common.mqtt.MQTTClient(self.config.get("client_id", "SerialGateway"))
+        self.client = common.mqtt.MQTTClient(self.config.get("client_id", self.NAME))
         self.client.connect()
 
         # Create a lock for the data handling routine
@@ -45,12 +50,12 @@ class SerialGateway(driver.Driver):
         self.running = True
 
         # Listen to incomming commands
-        self.client.subscribe('commands/serialgateway', self.receiveCommand)
+        self.client.subscribe('commands/{0}'.format(self.NAME.lower()), self.receiveCommand)
 
         self.logger.info("Running")
 
         # Notify the system we started
-        self.client.send("events/driver/started", "SerialGateway")
+        self.client.send("events/{0}/started".format(self.NAME.lower()), self.NAME)
 
         # Set alive flag
         self.alive = True
@@ -62,28 +67,25 @@ class SerialGateway(driver.Driver):
         self.thread_read.start()
 
         # Run for close to ever
-        while self.running:
-            time.sleep(1)
+        try:
+            while self.running:
+                time.sleep(0.5)
+
+                if not self.client.alive:
+                    self.logger.error("Client disconnected unexpectedly")
+                    break
+
+        except (KeyboardInterrupt, SystemExit):
+            self.logger.info("Received external (keyboard) exit")
+        except (Exception, e):
+            self.logger.error(e)
+        finally:
+            pass
 
         # Stopped
         self.logger.info("Stopping")
 
-        # Notify the system we stopped
-        self.client.send("events/driver/stopped", "SerialGateway")
-
-        # Disconnect from mqtt
-        self.client.disconnect()
-
-        self.logger.debug("Awaiting disconnect")
-        for i in range(10000):
-            if not self.client.connected:
-                break
-
-            time.sleep(0.1)
-
-        # Wait for the serial thread to finish
-        self.thread_read.join()
-
+        self.stop()
         self.logger.info("Stopped")
 
     def serial_worker(self):
@@ -154,6 +156,22 @@ class SerialGateway(driver.Driver):
     def stop(self):
         self.logger.info("Stopping")
         self.running = False
+
+        # Notify the system we stopped
+        self.client.send("events/{0}/stopped".format(self.NAME.lower()), self.NAME)
+
+        # Disconnect from mqtt
+        self.client.disconnect()
+
+        self.logger.debug("Awaiting disconnect")
+        for i in range(50):
+            if not self.client.connected:
+                break
+
+            time.sleep(0.1)
+
+        # Wait for the serial thread to finish
+        self.thread_read.join()
 
         return True
 
