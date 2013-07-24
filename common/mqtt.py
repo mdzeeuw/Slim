@@ -16,6 +16,7 @@ import re
 __all__ = ["getMQTTClient", "MQTTClient"]
 
 
+
 def getMQTTClient(client_id):
 
     conf = config.getConfig('mqtt')
@@ -48,6 +49,8 @@ class MQTTClient():
             self.logger = common.get_logger("MQTT.{0}".format(client_id), True)
         else:
             self.logger = common.get_file_logger("MQTT.{0}".format(client_id), False)
+
+        self.lock = threading.RLock()
 
         self.logger.debug("Initialized")
 
@@ -105,7 +108,8 @@ class MQTTClient():
 
             self.alive = False
             self.logger.info("Disconnecting")
-            self.client.disconnect()
+            with self.lock:
+                self.client.disconnect()
 
             for i in range(1000):
                 if self.client.loop():
@@ -146,7 +150,8 @@ class MQTTClient():
 
         self.logger.info("Unsubscribing from {0}".format(topic))
 
-        self.client.unsubscribe(topic)
+        with self.lock:
+            self.client.unsubscribe(topic)
 
         # Find the related subscriptions
         for i in range(len(self.subscriptions)-1, -1, -1):
@@ -161,8 +166,9 @@ class MQTTClient():
         if retain:
             retain = 1
 
-        self.logger.debug("Sending message {0} : '{1}' q{2} r{3}".format(topic, message, qos, retain))
-        self.client.publish(topic, message, qos, True)
+        with self.lock:
+            self.logger.debug("Sending message {0} : '{1}' q{2} r{3}".format(topic, message, qos, retain))
+            self.client.publish(topic, message, qos, True)
 
     def do_subscribe(self):
 
@@ -184,12 +190,13 @@ class MQTTClient():
         self.logger.info("Looper started")
         while self.alive:
             try:
-                time.sleep(0.50)
-                self.loop()
+                time.sleep(0.001)
+                with self.lock:
+                    self.loop()
 
             except Exception as e:
                 self.logger.error(e)
-                break
+                raise
 
         self.alive = False
         self.logger.info("Looper stopped")

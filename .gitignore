@@ -3,4 +3,4 @@
 *.yml
 !*.default.yml
 *.key
-
+*.txt

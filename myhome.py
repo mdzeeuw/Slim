@@ -70,10 +70,10 @@ if __name__ == '__main__':
                 driver.initialize(debug)
 
                 driver.start()
-            except Exception, e:
+            except Exception as e:
                 logger.error("Error in {0}".format(name))
                 logger.error(e)
-                raise e
+                raise
             finally:
                 logger.info("Quit {0}".format(name))
 

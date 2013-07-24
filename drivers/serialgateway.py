@@ -1,3 +1,4 @@
+import sys
 import driver
 import common.config
 import common.error
@@ -62,7 +63,7 @@ class SerialGateway(driver.Driver):
 
         # Start reading thread
         self.thread_read = threading.Thread(target=self.serial_worker)
-        self.thread_read.setDaemon(False)
+        self.thread_read.setDaemon(True)
         self.thread_read.setName('serial_worker')
         self.thread_read.start()
 
@@ -75,15 +76,16 @@ class SerialGateway(driver.Driver):
                     self.logger.error("Client disconnected unexpectedly")
                     break
 
+            #raise Exception("hi")
         except (KeyboardInterrupt, SystemExit):
             self.logger.info("Received external (keyboard) exit")
-        except (Exception, e):
+        except Exception as e:
             self.logger.error(e)
+            #print "Unexpected error:", sys.exc_info()[0]
+            raise
         finally:
-            pass
-
-        # Stopped
-        self.logger.info("Stopping")
+            # Stopped
+            self.logger.info("Stopping")
 
         self.stop()
         self.logger.info("Stopped")
@@ -96,34 +98,44 @@ class SerialGateway(driver.Driver):
 
         self.logger.info("Setup serial connection {0} {1}".format(port, speed))
 
-        # Make connection
-        serial_conn = serial.Serial(port, speed)
-
-        # Clear the current buffers
-        serial_conn.flushInput()
-        serial_conn.flushOutput()
-
-        while self.running:
-            # get the raw data, clean the line breaks
-            data = serial_conn.readline().strip(' \t\n\r')
-
-            # Append the group
-            data = "44 " + data
-
-            self._write_lock.acquire()
-            try:
-                self.handleData(data)
-            finally:
-                self._write_lock.release()
-
-            time.sleep(0.0001)
-
-        # The end
-        self.logger.info("Closing serial connection")
         try:
-            serial_conn.close()
+            # Make connection
+            serial_conn = serial.Serial(port, speed)
+
+            # Clear the current buffers
+            serial_conn.flushInput()
+            serial_conn.flushOutput()
+
+            while self.running:
+                # get the raw data, clean the line breaks
+                self.logger.debug("Serial reading line")
+                ser_data = serial_conn.readline().strip(' \t\n\r')
+                self.logger.debug("Serial data received")
+                # Append the group
+                ser_data = "44 " + ser_data
+
+                #self._write_lock.acquire()
+                #try:
+                self.handleData(ser_data)
+                #finally:
+                #    pass
+                #self._write_lock.release()
+
+                time.sleep(0.001)
+
+            # The end
+            self.logger.info("Closing serial connection")
+            try:
+                serial_conn.close()
+            finally:
+                pass
+
+        except:
+            self.logger.error("Error in serial worker")
+            raise
         finally:
-            pass
+            self.alive = False
+            self.logger.info("Serial worker stopped")
 
     def handleData(self, data):
 
@@ -140,8 +152,10 @@ class SerialGateway(driver.Driver):
             group = parsed[0]
             node = parsed[1]
 
-        # Send the raw data over mqtt
-        self.client.send("sensor-raw/{0}/{1}".format(group, node), data)
+            self.logger.debug("Sending to sensor-raw/{0}/{1}".format(group, node))
+
+            # Send the raw data over mqtt
+            self.client.send("sensor-raw/{0}/{1}".format(group, node), data)
 
     def receiveCommand(self, message):
 
