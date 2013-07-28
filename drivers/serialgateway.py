@@ -18,45 +18,11 @@ class SerialGateway(driver.Driver):
 
     NAME = "SerialGateway"
 
-    def initialize(self, debug=False):
-
-        self.running = False
-
-        # Initialize the raw data logger
-        self.data_logger = MyhomeDataLogger()
-        self.data_logger.check_log()
-
-        # Regular logger
-        if debug:
-            self.logger = common.common.get_logger(self.NAME, True)
-        else:
-            self.logger = common.common.get_file_logger(self.NAME, False)
-
+    def start(self):
         # Get my config
         self.config = common.config.Config("serial")
 
-        # Initalize mqtt client
-        self.client = common.mqtt.MQTTClient(self.config.get("client_id", self.NAME))
-        self.client.connect()
-
-        # Create a lock for the data handling routine
-        self._write_lock = threading.Lock()
-
-        self.logger.info("Initialized")
-        return True
-
-    def start(self):
-
-        self.logger.info("Starting")
-        self.running = True
-
-        # Listen to incomming commands
-        self.client.subscribe('commands/{0}'.format(self.NAME.lower()), self.receiveCommand)
-
-        self.logger.info("Running")
-
-        # Notify the system we started
-        self.client.send("events/{0}/started".format(self.NAME.lower()), self.NAME)
+        self.data_logger = MyhomeDataLogger()
 
         # Set alive flag
         self.alive = True
@@ -67,28 +33,12 @@ class SerialGateway(driver.Driver):
         self.thread_read.setName('serial_worker')
         self.thread_read.start()
 
+        super(SerialGateway, self).start()
+
         # Run for close to ever
-        try:
-            while self.running:
-                time.sleep(0.5)
+    def run(self):
 
-                if not self.client.alive:
-                    self.logger.error("Client disconnected unexpectedly")
-                    break
-
-            #raise Exception("hi")
-        except (KeyboardInterrupt, SystemExit):
-            self.logger.info("Received external (keyboard) exit")
-        except Exception as e:
-            self.logger.error(e)
-            #print "Unexpected error:", sys.exc_info()[0]
-            raise
-        finally:
-            # Stopped
-            self.logger.info("Stopping")
-
-        self.stop()
-        self.logger.info("Stopped")
+        pass
 
     def serial_worker(self):
 
@@ -157,32 +107,9 @@ class SerialGateway(driver.Driver):
             # Send the raw data over mqtt
             self.client.send("sensor-raw/{0}/{1}".format(group, node), data)
 
-    def receiveCommand(self, message):
-
-        self.logger.info("Received command: {0}".format(message))
-
-        if message.payload == "stop":
-            self.stop()
-
-        if message.payload == "restart":
-            self.restart()
-
     def stop(self):
-        self.logger.info("Stopping")
-        self.running = False
 
-        # Notify the system we stopped
-        self.client.send("events/{0}/stopped".format(self.NAME.lower()), self.NAME)
-
-        # Disconnect from mqtt
-        self.client.disconnect()
-
-        self.logger.debug("Awaiting disconnect")
-        for i in range(50):
-            if not self.client.connected:
-                break
-
-            time.sleep(0.1)
+        super(SerialGateway, self).stop()
 
         # Wait for the serial thread to finish
         self.thread_read.join()

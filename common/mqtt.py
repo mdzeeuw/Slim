@@ -108,14 +108,15 @@ class MQTTClient():
 
             self.alive = False
             self.logger.info("Disconnecting")
-            with self.lock:
-                self.client.disconnect()
+            self.client.disconnect()
 
             for i in range(1000):
                 if self.client.loop():
                     break
 
-            self.logger.info("Succesfull disconnect")
+                time.sleep(0.01)
+
+            self.logger.info("Succesfull disconnect: {0}".format(not self.connected))
 
     def kill(self):
         self.alive = False
@@ -142,7 +143,13 @@ class MQTTClient():
 
         regex = re.compile(regex)
 
-        self.subscriptions.append({'r': regex, 't': topic, 'c': callback, 'e': False})
+        self.subscriptions.append({
+            'regex': regex,
+            'topic': topic,
+            'callback': callback,
+            'mid': False,
+            'enabled': False
+        })
 
         self.do_subscribe()
 
@@ -159,16 +166,20 @@ class MQTTClient():
             sub = self.subscriptions[i]
 
             # Matching subscription? delete it
-            if sub['t'] == topic:
+            if sub['topic'] == topic:
                 del self.subscriptions[i]
 
-    def send(self, topic, message, retain=0, qos=0):
+    def send(self, topic, message, retain=0, qos=0, loop=False):
         if retain:
             retain = 1
 
+        self.logger.debug("Sending message topic:'{0}' len:{1} q:{2} r:{3}".format(topic, len(message), qos, retain))
+
         with self.lock:
-            self.logger.debug("Sending message {0} : '{1}' q{2} r{3}".format(topic, message, qos, retain))
-            self.client.publish(topic, message, qos, True)
+            self.client.publish(topic, message, qos, retain)
+
+            if loop:
+                self.client.loop()
 
     def do_subscribe(self):
 
@@ -179,9 +190,10 @@ class MQTTClient():
 
         for sub in self.subscriptions:
 
-            if not sub['e']:
-                sub['e'] = True
-                self.client.subscribe(sub['t'], 0)
+            if sub['mid'] is False:
+                sub['enabled'] = False
+                (result, mid) = self.client.subscribe(sub['topic'], 0)
+                sub['mid'] = mid
 
                 #print "Subscribe {0}".format(sub['t'])
 
@@ -189,20 +201,20 @@ class MQTTClient():
         self.alive = True
         self.logger.info("Looper started")
         while self.alive:
+
             try:
-                time.sleep(0.001)
                 with self.lock:
-                    self.loop()
+                    self.client.loop()
+
+                time.sleep(0.1)
 
             except Exception as e:
                 self.logger.error(e)
+
+                self.alive = False
                 raise
 
-        self.alive = False
         self.logger.info("Looper stopped")
-
-    def loop(self):
-        return self.client.loop()
 
     def on_connect(self, obj, rc):
 
@@ -213,7 +225,7 @@ class MQTTClient():
         # OK
         if rc == 0:
             self.connected = True
-            self.send("unittest/test", "Connected OK")
+            #self.send("unittest/test", "Connected OK")
             self.do_subscribe()
 
         # Protocol version not accepted
@@ -256,8 +268,8 @@ class MQTTClient():
         #print("Message received on topic "+msg.topic+" with QoS "+str(msg.qos)+" and payload "+msg.payload)
         #
         for subscription in self.subscriptions:
-            if subscription["r"].match(msg.topic):
-                subscription["c"](msg)
+            if subscription["regex"].match(msg.topic):
+                subscription["callback"](msg)
 
     def on_publish(self, obj, mid):
         #print "Published " + str(mid)
@@ -265,6 +277,14 @@ class MQTTClient():
 
     def on_subscribe(self, obj, mid, qos):
         self.logger.debug("Subscribed {0} {1}".format(mid, qos))
+
+        for sub in self.subscriptions:
+
+            if sub['mid'] == mid:
+                sub['enabled'] = True
+                self.logger.info("Subscribed to topic '{0}'".format(sub['topic']))
+                break
+
         #print "Subscribed "
         pass
 

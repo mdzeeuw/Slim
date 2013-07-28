@@ -58,6 +58,14 @@ if __name__ == '__main__':
         from drivers.sensordecoder import SensorDecoder
         driver = SensorDecoder()
 
+    elif args.m == "monitor":
+        from drivers.systemmonitor import SystemMonitor
+        driver = SystemMonitor()
+
+    elif args.m == "outside":
+        from drivers.outsidemonitor import OutsideMonitor
+        driver = OutsideMonitor()
+
     name = driver.__class__.__name__.lower()
 
     if driver:
@@ -94,13 +102,15 @@ if __name__ == '__main__':
 
                 time.sleep(0.01)
 
-            client.send("commands/{0}".format(name), "stop")
+            client.send("command/{0}".format(name), "stop", 0, 0, True)
 
             client.disconnect()
 
             for i in range(50):
                 if not client.connected:
                     break
+
+                time.sleep(0.1)
 
         else:
             print "No action given"

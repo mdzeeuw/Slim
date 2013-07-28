@@ -16,107 +16,73 @@ class CPUMonitor(driver.Driver):
     CHECK_INTERVAL = 60
     NAME = "CPUMonitor"
 
-    def initialize(self, debug=False):
+    last_check_time = None
 
-        self.running = False
+    def run(self):
+        #self.logger.debug("cpu loop")
+        if self.last_check_time is None or time.time() - self.last_check_time > self.CHECK_INTERVAL:
+            data = self.getUptime()
 
-        # Regular logger
-        if debug:
-            self.logger = common.common.get_logger(self.NAME, True)
-        else:
-            self.logger = common.common.get_file_logger(self.NAME, False)
+            self.handleData(data)
+            self.last_check_time = time.time()
 
-        # Initalize mqtt client
-        self.client = common.mqtt.MQTTClient("CPUMonitor", debug)
-        self.client.connect()
-
-        if not self.client.connected:
-            self.logger.error("Failed to connect to the MQTT broker")
-            self.client.kill()
-            return False
-
-        self.logger.info("Initialized")
-        return True
-
-    def start(self):
-
-        self.logger.info("Starting")
-        self.running = True
-
-        # Listen to incomming commands
-        self.client.subscribe('command/cpumonitor', self.receiveCommand)
-
-        self.logger.info("Running")
-
-        # Notify the system we started
-        self.client.send("event/cpumonitor/started/", "CPU Monitor")
-
-        last_check_time = None
-
-        # Run for close to ever
-        try:
-            while self.running:
-
-                if not self.client.alive:
-                    self.logger.error("Client disconnected unexpectedly")
-                    break
-
-                #self.logger.debug("cpu loop")
-                if last_check_time is None or time.time() - last_check_time > self.CHECK_INTERVAL:
-                    data = self.getUptime()
-
-                    self.handleData(data)
-                    last_check_time = time.time()
-
-                time.sleep(0.5)
-        except (KeyboardInterrupt, SystemExit):
-            self.logger.info("Received external (keyboard) exit")
-        except Exception, e:
-            self.logger.error(e)
-        finally:
-            pass
-
-        self.logger.info("Run loop ended")
-
-        self.stop()
+        time.sleep(0.1)
 
     def handleData(self, data):
 
         self.logger.debug("Got data {0}".format(data))
 
-        parsed = data.split(' ')
+        parsed = data.strip(' \n\r\t').replace('  ', ' ').split(' ')
 
         #print parsed
-
         #print len(parsed)
+        cpu_15 = None
+        # curr time
+        if len(parsed):
+            ct = parsed.pop(0)
 
-        cpu_1 = None
-
-        if len(parsed) == 15:
-            uptime = "{0} {1} {2}".format(parsed[2], parsed[3].strip(' ,'), parsed[5].strip(' ,'))
-            users = parsed[7].strip(' ,')
-            cpu_1 = parsed[12].strip(' ,')
-            cpu_5 = parsed[13].strip(' ,')
-            cpu_15 = parsed[14].strip(' ,')
-
-        if len(parsed) == 14:
-            uptime = "{0} {1} {2}".format(parsed[2], parsed[3].strip(' ,'), parsed[4].strip(' ,'))
-            users = parsed[6].strip(' ,')
-            cpu_1 = parsed[11].strip(' ,')
-            cpu_5 = parsed[12].strip(' ,')
-            cpu_15 = parsed[13].strip(' ,')
-
-        if len(parsed) == 13:
+        # 'up'
+        if len(parsed):
             parsed.pop(0)
 
-        if len(parsed) == 12:
-            uptime = parsed[2].strip(' ,')
-            users = parsed[4].strip(' ,')
-            cpu_1 = parsed[9].strip(' ,')
-            cpu_5 = parsed[10].strip(' ,')
-            cpu_15 = parsed[11].strip(' ,')
+        uptime = ""
+        # uptime, last one has ',' at end
+        while len(parsed):
+            uptime = uptime + " " + parsed.pop(0)
 
-        if cpu_1:
+            if uptime[-1] == ',':
+                uptime = uptime.strip(' ,')
+                break
+
+        # user count
+        if len(parsed):
+            users = parsed.pop(0).strip(' ,')
+
+        # user text
+        if len(parsed):
+            parsed.pop(0).strip(' ,')
+
+        # load text
+        if len(parsed):
+            parsed.pop(0).strip(' ,')
+
+        # average text
+        if len(parsed):
+            parsed.pop(0).strip(' ,')
+
+        # load_1 text
+        if len(parsed):
+            cpu_1 = parsed.pop(0).strip(' ,')
+
+        # load_5 text
+        if len(parsed):
+            cpu_5 = parsed.pop(0).strip(' ,')
+
+        # load_15 text
+        if len(parsed):
+            cpu_15 = parsed.pop(0).strip(' ,')
+
+        if cpu_15:
             self.logger.debug("CPU. up {0} users {1} cpu1 {2} cpu5 {3} cpu15 {4}".format(uptime, users, cpu_1, cpu_5, cpu_15))
 
             self.client.send("sensor/0/pigate/cpu/uptime", uptime, True)
@@ -129,42 +95,6 @@ class CPUMonitor(driver.Driver):
             self.logger.error("Skipped! '{0}'".format(data))
         # Send the raw data over mqtt
         #self.client.send("sensor-raw/0/cpu", data)
-
-    def receiveCommand(self, message):
-
-        self.logger.info("Received command: {0}".format(message))
-
-        if message.payload == "stop":
-            self.stop()
-
-        if message.payload == "restart":
-            self.restart()
-
-    def stop(self):
-        if not self.running:
-            return
-
-        self.logger.info("Stopping")
-
-        self.running = False
-
-         # Stopped
-        self.logger.info("Closing connections")
-
-        # Notify the system we stopped
-        self.client.send("events/driver/stopped", "CPU Monitor")
-
-        # Disconnect from mqtt
-        self.client.disconnect()
-
-        self.logger.debug("Awaiting disconnect")
-        for i in range(50):
-            if not self.client.connected:
-                break
-
-            time.sleep(0.1)
-
-        return True
 
     def restart(self):
         self.logger.info("Restarting")

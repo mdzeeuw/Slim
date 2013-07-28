@@ -27,8 +27,8 @@ class Config():
                 h.close()
 
                 return
-        except yaml.scanner.ScannerError:
-            raise ConfigError("Invalid config file '{0}'".format(filename))
+        except yaml.scanner.ScannerError as e:
+            raise ConfigError("Invalid config file '{0}' : {1}".format(filename, e))
 
         return
 
